@@ -10,6 +10,9 @@ import requests
 from io import BytesIO
 import base64
 import time
+import os
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import sigmoid_kernel
 
 # Page configuration
 st.set_page_config(
@@ -90,22 +93,64 @@ if 'selected_movie' not in st.session_state:
 # Function to load data with caching
 @st.cache_data
 def load_data():
-    """Load all necessary data files"""
+    """Load data, generating models if necessary"""
     try:
-        # Load the movie data
-        df = pd.read_csv('movie_data_for_app.csv')
+        # Check if pre-computed files exist
+        files_exist = (
+            os.path.exists('movie_data_for_app.csv') and 
+            os.path.exists('sigmoid_kernel.pkl') and 
+            os.path.exists('tfidf_vectorizer.pkl')
+        )
         
-        # Load the saved models
-        with open('sigmoid_kernel.pkl', 'rb') as f:
-            sigmoid_kernel = pickle.load(f)
-        
-        with open('tfidf_vectorizer.pkl', 'rb') as f:
-            tfidf = pickle.load(f)
-        
-        return df, sigmoid_kernel, tfidf
-    except FileNotFoundError as e:
-        st.error(f"Error loading files: {e}")
-        st.info("Please ensure all required files are in the correct directory.")
+        if not files_exist:
+            st.warning("Model files not found. Generating them now... (This only happens once)")
+            
+            # Load raw data
+            try:
+                credits = pd.read_csv("tmdb_5000_credits.csv")
+                movies = pd.read_csv("tmdb_5000_movies.csv")
+            except FileNotFoundError:
+                st.error("Raw data files (tmdb_5000_*.csv) not found! Cannot generate models.")
+                st.stop()
+                
+            # Process data
+            credits_updated = credits.rename(columns={"movie_id": "id"})
+            df = movies.merge(credits_updated, on="id")
+            df = df.drop(columns=["homepage", "title_x", "title_y", "status", "production_countries"], errors='ignore')
+            
+            # Calculate weighted average
+            v = df['vote_count']
+            R = df['vote_average']
+            C = df['vote_average'].mean()
+            m = df['vote_count'].quantile(0.70)
+            df['weighted_score'] = ((R * v) + (C * m)) / (v + m)
+            
+            # TF-IDF & Sigmoid Kernel
+            tfv = TfidfVectorizer(min_df=3, max_features=None, strip_accents="unicode", analyzer="word",
+                                token_pattern=r"\w{1,}", ngram_range=(1, 3), stop_words="english")
+            
+            df["overview"] = df["overview"].fillna("")
+            tfv_matrix = tfv.fit_transform(df["overview"])
+            sigmoid_kernel_matrix = sigmoid_kernel(tfv_matrix, tfv_matrix)
+            
+            # Save for future use (optional strictly speaking on cloud if ephemeral, but good practice)
+            # dataframes
+            # df.to_csv("movie_data_for_app.csv", index=False)
+            
+            return df, sigmoid_kernel_matrix, tfv
+            
+        else:
+            # Load from pre-computed files
+            df = pd.read_csv('movie_data_for_app.csv')
+            with open('sigmoid_kernel.pkl', 'rb') as f:
+                sigmoid_kernel_matrix = pickle.load(f)
+            with open('tfidf_vectorizer.pkl', 'rb') as f:
+                tfidf = pickle.load(f)
+            
+            return df, sigmoid_kernel_matrix, tfidf
+
+    except Exception as e:
+        st.error(f"Error loading/generating data: {e}")
         return None, None, None
 
 # Function to get movie poster from TMDB API
