@@ -1,6 +1,10 @@
 
 # 🎬 Movie Recommendation System
 
+## 🚀 Live Demo
+
+Check out the live application here: [Movie Recommendation App](https://movie-recommendation-8tvtaptosb6.streamlit.app/)
+
 A sophisticated machine learning-based web application that provides personalized movie recommendations. This system utilizes multiple recommendation strategies including Content-Based Filtering, Weighted Ratings, and Hybrid approaches to suggest the best movies to users.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
